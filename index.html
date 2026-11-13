@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mural de Sugestões — Integração Webhook Discord</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #16171d;
+            color: #f3f4f6;
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #16171d; }
+        ::-webkit-scrollbar-thumb { background: #2b2d38; border-radius: 4px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Header -->
+    <header class="bg-[#1b1c24] border-b border-[#2a2d3a] sticky top-0 z-30">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5865F2] to-[#7c3aed] flex items-center justify-center shadow-lg">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-lg sm:text-xl font-extrabold tracking-tight text-white">Mural de Sugestões • Discord Webhook</h1>
+                        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            100% Webhook
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-400">1+ 👍 = 🤔 Em análise &nbsp;•&nbsp; 8+ 👍 = 👍 Aprovada (envia direto pro Discord)</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button onclick="openModal('modal-new-idea')" class="px-4 py-2.5 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs sm:text-sm font-bold shadow-lg transition">
+                    + Nova Ideia
+                </button>
+                <button onclick="sendAllSummaryToDiscord()" class="px-4 py-2.5 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs sm:text-sm font-bold shadow-lg shadow-[#5865F2]/20 transition">
+                    Enviar Boletim no Discord
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        <!-- Configuração do Webhook -->
+        <section class="bg-[#20222b] border border-[#2c2f3c] rounded-2xl p-5 shadow-xl space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                    <h2 class="text-sm font-extrabold text-white">Webhook do Canal (#sugestões-da-equipe ou #avisos)</h2>
+                    <p class="text-xs text-gray-400">No Discord: Editar Canal → Integrações → Webhooks → Novo Webhook → Copiar URL</p>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="px-2.5 py-1 rounded-lg bg-gray-700/50 text-gray-300 font-semibold">☀️ Nova: 0 👍</span>
+                    <span class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/20">🤔 Em análise: 1–7 👍</span>
+                    <span class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/20">👍 Aprovada: 8+ 👍</span>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2">
+                <input type="url" id="input-webhook-url" placeholder="https://discord.com/api/webhooks/..." class="flex-1 bg-[#16171d] border border-[#2f3342] rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#5865F2]">
+                <button onclick="saveWebhookUrl()" class="px-4 py-2.5 rounded-xl bg-[#10b981] hover:bg-[#059669] text-white text-xs font-bold transition whitespace-nowrap">
+                    Salvar Webhook
+                </button>
+            </div>
+
+            <label class="flex items-center gap-2 cursor-pointer select-none text-xs text-gray-300 pt-1">
+                <input type="checkbox" id="chk-auto-post" checked class="w-4 h-4 rounded bg-[#16171d] border-gray-600 text-[#5865F2]">
+                <span>Postar automaticamente no Discord sempre que uma ideia mudar de tag (ex: virar <strong class="text-amber-300">Em análise</strong> ou <strong class="text-emerald-300">Aprovada</strong>)</span>
+            </label>
+        </section>
+
+        <!-- Filtros por Tag -->
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2" id="tag-filters">
+                <button onclick="setFilter('ALL')" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-[#16171d] transition">Todas</button>
+                <button onclick="setFilter('NOVA')" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#20222b] text-gray-300 hover:text-white border border-[#2f3342] transition">☀️ Nova</button>
+                <button onclick="setFilter('ANALISE')" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#20222b] text-gray-300 hover:text-white border border-[#2f3342] transition">🤔 Em análise (1+ 👍)</button>
+                <button onclick="setFilter('APROVADA')" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#20222b] text-gray-300 hover:text-white border border-[#2f3342] transition">👍 Aprovada (8+ 👍)</button>
+            </div>
+            <span id="ideas-counter" class="text-xs text-gray-400 font-semibold">0 sugestões cadastradas</span>
+        </div>
+
+        <!-- Lista de Sugestões -->
+        <section id="ideas-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Renderizado via JS -->
+        </section>
+
+    </main>
+
+    <!-- Modal: Nova Ideia -->
+    <div id="modal-new-idea" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#20222b] border border-[#2f3342] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-[#2c2f3c] pb-3">
+                <h3 class="text-lg font-extrabold text-white">Nova Sugestão da Equipe</h3>
+                <button onclick="closeModal('modal-new-idea')" class="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-gray-300 mb-1">Título da Ideia</label>
+                    <input type="text" id="new-idea-title" placeholder="Ex: Adicionar sistema de dash com invencibilidade" class="w-full bg-[#16171d] border border-[#2c2f3c] rounded-xl px-3.5 py-2 text-sm text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-300 mb-1">Autor (Membro da Equipe)</label>
+                    <select id="new-idea-author" class="w-full bg-[#16171d] border border-[#2c2f3c] rounded-xl px-3.5 py-2 text-sm text-white">
+                        <option value="Blue Leaf (Eu)">Blue Leaf (Eu)</option>
+                        <option value="Breno">Breno</option>
+                        <option value="Nathan">Nathan</option>
+                        <option value="Rapha">Rapha</option>
+                        <option value="Marcos">Marcos</option>
+                        <option value="Lorena">Lorena</option>
+                        <option value="Theo">Theo</option>
+                        <option value="Thiago">Thiago</option>
+                        <option value="Maria">Maria</option>
+                        <option value="Pedro S.">Pedro S.</option>
+                        <option value="Lucca">Lucca</option>
+                        <option value="Davi">Davi</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-300 mb-1">Descrição rápida</label>
+                    <textarea id="new-idea-desc" rows="3" placeholder="Explique como isso funciona no jogo..." class="w-full bg-[#16171d] border border-[#2c2f3c] rounded-xl px-3.5 py-2 text-sm text-white"></textarea>
+                </div>
+                <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-300">
+                    <input type="checkbox" id="chk-post-new-idea" checked class="w-4 h-4 rounded bg-[#16171d] border-gray-600 text-[#5865F2]">
+                    <span>Postar nova ideia no Discord imediatamente</span>
+                </label>
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t border-[#2c2f3c]">
+                <button onclick="closeModal('modal-new-idea')" class="px-4 py-2 rounded-xl bg-[#252834] text-xs font-bold text-gray-300">Cancelar</button>
+                <button onclick="addNewIdea()" class="px-4 py-2 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-xs font-bold text-white">Criar Sugestão</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = "gamedev_sugestoes_webhook_v1";
+
+        const DEFAULT_DATA = {
+            webhookUrl: "",
+            autoPostOnTagChange: true,
+            ideas: [
+                {
+                    id: 1,
+                    title: "Criei um novo cronograma!",
+                    author: "Blue Leaf (Eu)",
+                    desc: "Olhem o cronograma da semana e informem nesta postagem o que acharam.",
+                    likes: 4
+                }
+            ]
+        };
+
+        let state = loadState();
+        let currentFilter = "ALL";
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) return JSON.parse(raw);
+            } catch (e) {}
+            return JSON.parse(JSON.stringify(DEFAULT_DATA));
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (e) {}
+            renderIdeas();
+        }
+
+        // Calcula o status automático baseado nos joinhas 👍
+        function getIdeaStatus(likes) {
+            if (likes >= 8) {
+                return {
+                    key: "APROVADA",
+                    label: "👍 Aprovada",
+                    badgeClass: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+                    embedColor: 1096065 // Verde #10b981
+                };
+            }
+            if (likes >= 1) {
+                return {
+                    key: "ANALISE",
+                    label: "🤔 Em análise",
+                    badgeClass: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
+                    embedColor: 14251782 // Âmbar #d97706
+                };
+            }
+            return {
+                key: "NOVA",
+                label: "☀️ Nova",
+                badgeClass: "bg-gray-700/60 text-gray-200 border border-gray-600/40",
+                embedColor: 5793266 // Azul Discord #5865F2
+            };
+        }
+
+        function saveWebhookUrl() {
+            const url = document.getElementById("input-webhook-url").value.trim();
+            state.webhookUrl = url;
+            state.autoPostOnTagChange = document.getElementById("chk-auto-post").checked;
+            saveState();
+            showToast("Configurações do Webhook salvas!");
+        }
+
+        // Envia Embed via Webhook (igual ao outro painel, sem CORS e sem precisar de bot 24h)
+        async function postWebhookEmbed(embed) {
+            const url = (document.getElementById("input-webhook-url").value || state.webhookUrl || "").trim();
+            if (!url || !url.startsWith("https://discord.com/api/webhooks/")) {
+                showToast("Cole uma Webhook URL válida primeiro!");
+                return false;
+            }
+
+            state.webhookUrl = url;
+
+            try {
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: "Sugestões da Equipe",
+                        embeds: [embed]
+                    })
+                });
+
+                if (res.ok) {
+                    return true;
+                } else {
+                    showToast("Erro ao enviar para o Webhook. Verifique a URL.");
+                    return false;
+                }
+            } catch (e) {
+                showToast("Falha de conexão com o Discord.");
+                return false;
+            }
+        }
+
+        async function changeLikes(id, delta) {
+            const idea = state.ideas.find(i => i.id === id);
+            if (!idea) return;
+
+            const oldStatus = getIdeaStatus(idea.likes);
+            idea.likes = Math.max(0, idea.likes + delta);
+            const newStatus = getIdeaStatus(idea.likes);
+
+            saveState();
+
+            // Se mudou de tag (ex: Nova -> Em análise com 1 👍, ou Em análise -> Aprovada com 8 👍)
+            const autoPost = document.getElementById("chk-auto-post").checked;
+            if (autoPost && oldStatus.key !== newStatus.key) {
+                const ok = await postWebhookEmbed({
+                    title: `${newStatus.label} • ${idea.title}`,
+                    description: idea.desc || "Sugestão enviada pela equipe.",
+                    color: newStatus.embedColor,
+                    fields: [
+                        { name: "Autor", value: idea.author, inline: true },
+                        { name: "Votos", value: `👍 **${idea.likes}** joinhas`, inline: true },
+                        { name: "Nova Tag", value: `**${newStatus.label}**`, inline: true }
+                    ],
+                    footer: { text: "Mural de Sugestões • Atualização Automática de Tag" }
+                });
+                if (ok) {
+                    showToast(`Tag alterada para "${newStatus.label}" e enviada no Discord!`);
+                }
+            }
+        }
+
+        async function sendSingleIdeaToDiscord(id) {
+            const idea = state.ideas.find(i => i.id === id);
+            if (!idea) return;
+
+            const status = getIdeaStatus(idea.likes);
+            const ok = await postWebhookEmbed({
+                title: `💡 ${idea.title}`,
+                description: idea.desc || "Sem descrição adicional.",
+                color: status.embedColor,
+                fields: [
+                    { name: "Autor", value: idea.author, inline: true },
+                    { name: "Tag Atual", value: `**${status.label}**`, inline: true },
+                    { name: "Apoio da Equipe", value: `👍 **${idea.likes}** / 8 para aprovar`, inline: true }
+                ],
+                footer: { text: "Mural de Sugestões • Game devs" }
+            });
+
+            if (ok) showToast("Sugestão postada no canal do Discord!");
+        }
+
+        async function sendAllSummaryToDiscord() {
+            if (state.ideas.length === 0) {
+                showToast("Nenhuma ideia cadastrada para enviar.");
+                return;
+            }
+
+            const lines = state.ideas.map(idea => {
+                const st = getIdeaStatus(idea.likes);
+                return `• **[${st.label}]** ${idea.title} — *por ${idea.author}* (👍 ${idea.likes})`;
+            });
+
+            const ok = await postWebhookEmbed({
+                title: "📋 Resumo das Sugestões da Equipe",
+                description: lines.join("\n"),
+                color: 8141549, // Roxo #7c3aed
+                footer: { text: "1+ 👍 = Em análise • 8+ 👍 = Aprovada" }
+            });
+
+            if (ok) showToast("Boletim completo enviado no Discord!");
+        }
+
+        async function addNewIdea() {
+            const title = document.getElementById("new-idea-title").value.trim();
+            const author = document.getElementById("new-idea-author").value;
+            const desc = document.getElementById("new-idea-desc").value.trim();
+            const postNow = document.getElementById("chk-post-new-idea").checked;
+
+            if (!title) {
+                showToast("Digite o título da ideia!");
+                return;
+            }
+
+            const newIdea = {
+                id: Date.now(),
+                title,
+                author,
+                desc,
+                likes: 0
+            };
+
+            state.ideas.unshift(newIdea);
+            document.getElementById("new-idea-title").value = "";
+            document.getElementById("new-idea-desc").value = "";
+            closeModal("modal-new-idea");
+            saveState();
+
+            if (postNow) {
+                await sendSingleIdeaToDiscord(newIdea.id);
+            } else {
+                showToast("Ideia adicionada ao mural!");
+            }
+        }
+
+        function deleteIdea(id) {
+            state.ideas = state.ideas.filter(i => i.id !== id);
+            saveState();
+            showToast("Sugestão removida.");
+        }
+
+        function setFilter(filterKey) {
+            currentFilter = filterKey;
+            document.querySelectorAll(".filter-btn").forEach(btn => {
+                const isSelected =
+                    (filterKey === "ALL" && btn.textContent.includes("Todas")) ||
+                    (filterKey === "NOVA" && btn.textContent.includes("Nova")) ||
+                    (filterKey === "ANALISE" && btn.textContent.includes("Em análise")) ||
+                    (filterKey === "APROVADA" && btn.textContent.includes("Aprovada"));
+
+                btn.className = isSelected
+                    ? "filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-[#16171d] transition"
+                    : "filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#20222b] text-gray-300 hover:text-white border border-[#2f3342] transition";
+            });
+            renderIdeas();
+        }
+
+        function renderIdeas() {
+            const grid = document.getElementById("ideas-grid");
+            grid.innerHTML = "";
+
+            const filtered = state.ideas.filter(idea => {
+                if (currentFilter === "ALL") return true;
+                return getIdeaStatus(idea.likes).key === currentFilter;
+            });
+
+            document.getElementById("ideas-counter").textContent = `${filtered.length} sugestão(ões) exibida(s)`;
+
+            if (filtered.length === 0) {
+                grid.innerHTML = `<div class="col-span-full bg-[#20222b] border border-[#2c2f3c] rounded-2xl p-8 text-center text-xs text-gray-400">Nenhuma sugestão nesta categoria ainda.</div>`;
+                return;
+            }
+
+            filtered.forEach(idea => {
+                const status = getIdeaStatus(idea.likes);
+                const progressPct = Math.min(100, Math.round((idea.likes / 8) * 100));
+
+                const card = document.createElement("div");
+                card.className = "bg-[#20222b] border border-[#2c2f3c] rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-lg";
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-2.5">
+                            <span class="text-xs font-bold px-3 py-1 rounded-full ${status.badgeClass}">
+                                ${status.label}
+                            </span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="sendSingleIdeaToDiscord(${idea.id})" class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-[#5865F2]/20 hover:bg-[#5865F2] text-[#949cf7] hover:text-white transition">
+                                    Postar no Discord
+                                </button>
+                                <button onclick="deleteIdea(${idea.id})" class="text-gray-500 hover:text-red-400 text-xs px-1.5 py-1" title="Remover">✕</button>
+                            </div>
+                        </div>
+
+                        <h3 class="text-base font-extrabold text-white">${idea.title}</h3>
+                        <p class="text-xs text-gray-400 mt-1 leading-relaxed">${idea.desc || "Sem descrição."}</p>
+                        <div class="text-[11px] text-gray-400 mt-2">Sugerido por <strong class="text-gray-200">${idea.author}</strong></div>
+                    </div>
+
+                    <div class="pt-3 border-t border-[#2c2f3c] space-y-2.5">
+                        <div class="flex items-center justify-between text-[11px] text-gray-400">
+                            <span>Progresso para Aprovação (8 👍)</span>
+                            <span class="font-bold text-white">${idea.likes} / 8 votos</span>
+                        </div>
+                        <div class="w-full h-2 bg-[#16171d] rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-300 ${idea.likes >= 8 ? 'bg-emerald-500' : idea.likes >= 1 ? 'bg-amber-500' : 'bg-gray-600'}" style="width: ${progressPct}%"></div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1">
+                            <div class="flex items-center gap-2">
+                                <button onclick="changeLikes(${idea.id}, 1)" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-bold shadow transition">
+                                    <span>👍</span>
+                                    <span>+1 Voto (${idea.likes})</span>
+                                </button>
+                                <button onclick="changeLikes(${idea.id}, -1)" class="px-2.5 py-1.5 rounded-xl bg-[#16171d] hover:bg-[#2a2d3a] border border-[#2f3342] text-xs font-bold text-gray-400 hover:text-white transition" title="Remover 1 voto">
+                                    -1
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function openModal(id) {
+            const m = document.getElementById(id);
+            m.classList.remove("hidden");
+            m.classList.add("flex");
+        }
+
+        function closeModal(id) {
+            const m = document.getElementById(id);
+            m.classList.add("hidden");
+            m.classList.remove("flex");
+        }
+
+        function showToast(msg) {
+            const c = document.getElementById("toast-container");
+            const el = document.createElement("div");
+            el.className = "bg-[#282b38] border border-[#3f4459] text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2";
+            el.innerHTML = `<span class="w-2 h-2 rounded-full bg-[#10b981]"></span><span>${msg}</span>`;
+            c.appendChild(el);
+            setTimeout(() => el.remove(), 3200);
+        }
+
+        window.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("input-webhook-url").value = state.webhookUrl || "";
+            document.getElementById("chk-auto-post").checked = state.autoPostOnTagChange !== false;
+            renderIdeas();
+        });
+    </script>
+</body>
+</html>
